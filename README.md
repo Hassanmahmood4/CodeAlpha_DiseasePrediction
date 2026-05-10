@@ -28,6 +28,16 @@ Outputs: trained models and scaler under `artifacts/`. Metrics printed include a
 
 **XGBoost:** On macOS, if XGBoost fails to load, install OpenMP (`brew install libomp`) or rely on the other models (training continues without XGBoost).
 
+## Streamlit UI
+
+After training, launch the interactive app from this folder:
+
+```bash
+streamlit run app.py
+```
+
+Choose the saved dataset and model, enter features (or upload a CSV when there are many columns), then click **Predict**.
+
 ## GitHub
 
 Create a new repository named `CodeAlpha_DiseasePrediction`, then:
