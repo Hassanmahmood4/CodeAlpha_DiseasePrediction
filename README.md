@@ -45,6 +45,16 @@ streamlit run app.py
 
 Use the **Prediction console** tab for live inference (six primary inputs; optional fields default to training medians). Review **Model evaluation** for offline metrics.
 
+## QA automation
+
+```bash
+pip install -r requirements.txt
+python scripts/train_models.py
+python scripts/smoke_test.py
+```
+
+Matplotlib caches render inside `.mplconfig/` (gitignored) so hosted demos avoid permission issues on read-only home directories.
+
 ## GitHub
 
 Repository name recommended by CodeAlpha: `CodeAlpha_DiseasePrediction`.

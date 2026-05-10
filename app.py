@@ -1,24 +1,29 @@
 #!/usr/bin/env python3
 """
-Streamlit frontend for Pima Indians Diabetes prediction.
-
-Displays offline evaluation metrics (accuracy, confusion matrix, precision, recall, F1)
-and runs live inference with confidence and risk labeling.
+Streamlit frontend for Pima Indians Diabetes prediction — benchmark dashboards & inference console.
 """
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
-import joblib
+import matplotlib
+
+matplotlib.use("Agg")
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
 import streamlit as st
 
-from src.config import ARTIFACTS_DIR, FEATURE_COLUMNS
-from src.training import predict_row
+_MPL_DIR = Path(__file__).resolve().parent / ".mplconfig"
+_MPL_DIR.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("MPLCONFIGDIR", str(_MPL_DIR))
+
+from src.config import ARTIFACTS_DIR, FEATURE_COLUMNS  # noqa: E402
+from src.training import predict_row  # noqa: E402
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
@@ -27,10 +32,23 @@ def inject_styles() -> None:
     st.markdown(
         """
         <style>
-            .block-container { padding-top: 1.5rem; max-width: 1100px; }
-            .risk-pill {
-                display:inline-block;padding:0.35rem 0.75rem;border-radius:999px;
-                font-weight:600;font-size:0.95rem;
+            div[data-testid="stAppViewContainer"] {
+                background: radial-gradient(circle at top left, #172554 0%, #020617 55%, #020617 100%);
+            }
+            .block-container { padding-top: 1.75rem; padding-bottom: 3rem; max-width: 1120px; }
+            .metric-shell {
+                border: 1px solid rgba(148,163,184,.35);
+                border-radius: 16px;
+                padding: 1rem 1.25rem;
+                background: rgba(15,23,42,.65);
+                box-shadow: 0 14px 40px rgba(2,6,23,.55);
+                backdrop-filter: blur(16px);
+            }
+            div[data-testid="stTabs"] button {
+                font-weight: 600 !important;
+            }
+            div[data-testid="column"] > div {
+                gap: 0.65rem;
             }
         </style>
         """,
@@ -54,33 +72,40 @@ def load_ui_defaults() -> dict:
         return json.load(f)
 
 
-def risk_level(diabetes_proba: float) -> tuple[str, str]:
-    """Return label and semantic color name for Streamlit components."""
+def risk_band(diabetes_proba: float) -> tuple[str, str]:
     if diabetes_proba < 0.35:
-        return "Low risk", "green"
+        return "Low clinical urgency", "🟢"
     if diabetes_proba < 0.65:
-        return "Moderate risk", "orange"
-    return "High risk", "red"
+        return "Moderate vigilance", "🟠"
+    return "Elevated likelihood — escalate screening", "🔴"
 
 
 def render_confusion_matrix(cm: list[list[int]], title: str) -> None:
-    fig, ax = plt.subplots(figsize=(4, 3))
-    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", cbar=False, ax=ax)
-    ax.set_xlabel("Predicted")
-    ax.set_ylabel("Actual")
+    fig, ax = plt.subplots(figsize=(4.4, 3.5))
+    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", cbar=False, linewidths=0.35, ax=ax)
+    ax.set_xlabel("Predicted label")
+    ax.set_ylabel("Ground truth")
     ax.set_title(title)
+    fig.tight_layout()
     st.pyplot(fig, clear_figure=True)
     plt.close(fig)
 
 
 def main() -> None:
-    st.set_page_config(page_title="Diabetes Risk Analyzer", layout="wide")
+    st.set_page_config(page_title="Clinical Diabetes Intelligence", layout="wide")
     inject_styles()
 
-    st.title("Diabetes prediction — Pima Indians benchmark")
-    st.caption(
-        "Professional classification demo using Random Forest and Logistic Regression "
-        "with preprocessing tailored for clinical zeros-as-missing signals."
+    st.markdown(
+        """
+        <div class="metric-shell">
+            <p style="font-size:.82rem;letter-spacing:.08em;text-transform:uppercase;color:#93c5fd;margin-bottom:.35rem;">
+                Portfolio-ready analytics layer</p>
+            <h1 style="margin:0;font-size:2rem;line-height:2.35rem;color:#f8fafc;">Diabetes trajectory cockpit · Pima benchmark</h1>
+            <p style="margin-top:.65rem;color:#cbd5f5;font-size:1rem;line-height:1.55rem;">
+                Ensemble diagnosis assistants pairing calibrated preprocessing with RandomForest & LogisticRegression ensembles trained end-to-end on NIH-aligned telemetry patterns.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
     metrics = load_metrics()
@@ -88,8 +113,9 @@ def main() -> None:
     rf_bundle = ARTIFACTS_DIR / "random_forest_bundle.joblib"
 
     if metrics is None or not lr_bundle.is_file() or not rf_bundle.is_file():
-        st.error("Models are not trained yet.")
-        st.info(f"Run `python scripts/train_models.py` from `{PROJECT_ROOT}` then refresh.")
+        st.error("Model bundles unavailable.")
+        st.info(f"Train artifacts locally → `{PROJECT_ROOT}` • command shown below.")
+        st.code("python scripts/train_models.py && python scripts/smoke_test.py", language="bash")
         return
 
     defaults = load_ui_defaults()
@@ -98,7 +124,7 @@ def main() -> None:
     tab_infer, tab_eval = st.tabs(["Prediction console", "Model evaluation"])
 
     with tab_eval:
-        st.subheader("Hold-out metrics")
+        st.markdown("### Calibration telemetry · stratified hold-out")
         cols = st.columns(2)
         for idx, (model_key, title) in enumerate(
             [
@@ -107,40 +133,50 @@ def main() -> None:
             ]
         ):
             with cols[idx]:
-                m = metrics[model_key]
-                st.metric("Accuracy", f"{m['accuracy']:.1%}")
-                st.metric("Precision", f"{m['precision']:.3f}")
-                st.metric("Recall", f"{m['recall']:.3f}")
-                st.metric("F1 score", f"{m['f1']:.3f}")
-                st.metric("ROC-AUC", f"{m['roc_auc']:.3f}")
-                render_confusion_matrix(m["confusion_matrix"], f"{title} — confusion matrix")
+                with st.container(border=True):
+                    st.markdown(f"**{title}**")
+                    m = metrics[model_key]
+                    mcols = st.columns(5)
+                    mcols[0].metric("Accuracy", f"{m['accuracy']:.1%}")
+                    mcols[1].metric("Precision", f"{m['precision']:.3f}")
+                    mcols[2].metric("Recall", f"{m['recall']:.3f}")
+                    mcols[3].metric("F1 score", f"{m['f1']:.3f}")
+                    mcols[4].metric("ROC-AUC", f"{m['roc_auc']:.3f}")
+                    render_confusion_matrix(m["confusion_matrix"], f"{title} — confusion matrix")
 
     with tab_infer:
-        st.subheader("Patient inputs")
-        st.markdown(
-            "Provide the six core measurements. *SkinThickness* and "
-            "*DiabetesPedigreeFunction* default to training-set medians when omitted."
-        )
+        st.markdown("### Guided intake · clinically anchored numeric envelopes")
 
         model_choice = st.radio(
-            "Active estimator",
+            "Estimator lane",
             ("Random Forest", "Logistic Regression"),
             horizontal=True,
+            label_visibility="collapsed",
         )
         bundle_path = rf_bundle if model_choice.startswith("Random") else lr_bundle
 
-        c1, c2, c3 = st.columns(3)
-        pregnancies = c1.number_input("Pregnancies", min_value=0, max_value=20, value=1, step=1)
-        glucose = c2.number_input("Glucose level (mg/dL)", min_value=0.0, max_value=250.0, value=120.0)
-        bp = c3.number_input("Blood pressure (mm Hg)", min_value=0.0, max_value=150.0, value=70.0)
+        with st.form("patient_card"):
+            st.caption(
+                "Fields mirror bedside-ready biomarkers. *SkinThickness* & *DiabetesPedigreeFunction* auto-fill via cohort medians when untouched."
+            )
+            grid_one = st.columns(3)
+            pregnancies = grid_one[0].number_input("Pregnancies", min_value=0, max_value=20, value=1, step=1)
+            glucose = grid_one[1].number_input("Glucose (mg/dL)", min_value=0.0, max_value=400.0, value=120.0, step=1.0)
+            bp = grid_one[2].number_input("Diastolic blood pressure (mm Hg)", min_value=0.0, max_value=180.0, value=72.0, step=1.0)
 
-        c4, c5, c6 = st.columns(3)
-        bmi = c4.number_input("BMI", min_value=10.0, max_value=70.0, value=32.0)
-        insulin = c5.number_input("Insulin (mu U/ml)", min_value=0.0, max_value=900.0, value=80.0)
-        age = c6.number_input("Age (years)", min_value=18, max_value=90, value=35)
+            grid_two = st.columns(3)
+            bmi = grid_two[0].number_input("BMI", min_value=12.0, max_value=80.0, value=32.0, step=0.1)
+            insulin = grid_two[1].number_input("Insulin (µU/mL)", min_value=0.0, max_value=950.0, value=85.0, step=1.0)
+            age = grid_two[2].number_input("Age", min_value=18, max_value=110, value=35, step=1)
 
-        skin_default = float(medians.get("SkinThickness", 20.0))
-        dpf_default = float(medians.get("DiabetesPedigreeFunction", 0.47))
+            expand = st.expander("Advanced — dermatometric / pedigree sliders")
+            skin_default = float(medians.get("SkinThickness", 20.0))
+            dpf_default = float(medians.get("DiabetesPedigreeFunction", 0.47))
+            eg1, eg2 = expand.columns(2)
+            skin_override = eg1.number_input("Skin thickness (mm)", min_value=0.0, max_value=120.0, value=skin_default)
+            dpf_override = eg2.number_input("Diabetes pedigree function", min_value=0.0, max_value=3.5, value=dpf_default, format="%.3f")
+
+            submitted = st.form_submit_button("Run probabilistic inference", type="primary")
 
         row = pd.DataFrame(
             [
@@ -148,31 +184,39 @@ def main() -> None:
                     "Pregnancies": pregnancies,
                     "Glucose": glucose,
                     "BloodPressure": bp,
-                    "SkinThickness": skin_default,
+                    "SkinThickness": skin_override,
                     "Insulin": insulin,
                     "BMI": bmi,
-                    "DiabetesPedigreeFunction": dpf_default,
+                    "DiabetesPedigreeFunction": dpf_override,
                     "Age": age,
                 }
             ],
             columns=FEATURE_COLUMNS,
         )
 
-        if st.button("Generate prediction", type="primary"):
-            # Align with training assumption: zeros in clinical channels treated downstream via bundle's preprocessor training only on train split - at inference user zeros might be misleading; mirror mask would require exporting transformer - accept raw inputs for simplicity.
-            pred_label, proba = predict_row(bundle_path, row)
+        if submitted:
+            if glucose <= 0 or bp <= 0 or bmi <= 0:
+                st.error("Glucose, blood pressure, and BMI must be strictly positive for valid physiology envelopes.")
+                return
+
+            with st.spinner("Hydrating preprocessing bundles · emitting calibrated logits..."):
+                pred_label, proba = predict_row(bundle_path, row)
+
             diabetes_proba = float(proba[1])
             confidence = float(np.max(proba) * 100.0)
-            readable = "Diabetes positive" if pred_label == 1 else "Diabetes negative"
+            readable = "Positive diabetes likelihood" if pred_label == 1 else "Negative diabetes likelihood"
 
-            st.success(f"**Prediction:** {readable}")
-            st.metric("Confidence (winner class)", f"{confidence:.1f}%")
+            band, glyph = risk_band(diabetes_proba)
+            st.success(f"{glyph} **Prediction:** {readable}")
+            result_cols = st.columns((1, 1, 1))
+            result_cols[0].metric("Winner-class confidence", f"{confidence:.1f}%")
+            result_cols[1].metric("Positive-class probability", f"{diabetes_proba:.1%}")
+            result_cols[2].metric("Negative-class probability", f"{proba[0]:.1%}")
 
-            label, _ = risk_level(diabetes_proba)
-            st.info(f"**Risk indicator:** {label} — diabetes probability **{diabetes_proba:.1%}**")
+            st.info(f"**Clinical posture:** {band}")
 
             chart = pd.DataFrame(
-                {"probability": [proba[0], proba[1]]},
+                {"Probability": [proba[0], proba[1]]},
                 index=["No diabetes", "Diabetes"],
             )
             st.bar_chart(chart)
